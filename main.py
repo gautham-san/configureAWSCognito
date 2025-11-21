@@ -251,7 +251,7 @@ def auth_verify_mfa(data: MfaVerifyLogin):
     try:
 
         secret_hash = calculate_secret_hash(data.username)
-        
+
         resp = cognito.respond_to_auth_challenge(
             ClientId=CLIENT_ID,
             ChallengeName="SOFTWARE_TOKEN_MFA",
@@ -273,6 +273,53 @@ def auth_verify_mfa(data: MfaVerifyLogin):
             "id_token": auth_result["IdToken"],
             "access_token": auth_result["AccessToken"],
             "refresh_token": auth_result.get("RefreshToken"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+class EmailSendCode(BaseModel):
+    access_token: str
+
+class EmailVerify(BaseModel):
+    access_token: str
+    code: str
+
+
+@app.post("/admin/email/force_verify")    
+def admin_force_verify_email(username: str):
+    cognito.admin_update_user_attributes(
+        UserPoolId=USER_POOL_ID,
+        Username=username,  # in your case, the email itself
+        UserAttributes=[
+            {"Name": "email_verified", "Value": "true"},
+        ],
+    )
+
+
+@app.post("/email/verify")
+def verify_email(data: EmailVerify):
+    try:
+        cognito.verify_user_attribute(
+            AccessToken=data.access_token,
+            AttributeName="email",
+            Code=data.code,
+        )
+        return {"status": "EMAIL_VERIFIED"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/email/send-code")
+def send_email_verification(data: EmailSendCode):
+    try:
+        resp = cognito.get_user_attribute_verification_code(
+            AccessToken=data.access_token,
+            AttributeName="email",
+        )
+        # resp contains CodeDeliveryDetails if you need it
+        return {
+            "status": "CODE_SENT",
+            "delivery": resp.get("CodeDeliveryDetails", {}),
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
