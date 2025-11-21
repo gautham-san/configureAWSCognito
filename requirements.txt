@@ -4,3 +4,11 @@ boto3
 python-dotenv 
 pyotp 
 qrcode[pil]
+pillow
+
+
+
+authlib 
+werkzeug 
+flask 
+requests
