@@ -77,6 +77,14 @@ def create_user(data: UserCreate):
                 UserPoolId=USER_POOL_ID,
                 Username=data.email,
                 )
+        
+        cognito.admin_update_user_attributes(
+        UserPoolId=USER_POOL_ID,
+        Username=data.email,  # in your case, the email itself
+        UserAttributes=[
+            {"Name": "email_verified", "Value": "true"},
+        ],
+    )
 
 
         return {
