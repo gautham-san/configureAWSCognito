@@ -1,4 +1,5 @@
 # main.py
+# uvicorn main:app --reload
 import os
 from typing import Optional
 
@@ -15,6 +16,9 @@ from io import BytesIO
 import qrcode
 from fastapi.responses import StreamingResponse
 
+import requests # New import for HTTP calls
+from fastapi.responses import RedirectResponse # To redirect user to Google
+
 
 from dotenv import load_dotenv
 
@@ -22,12 +26,20 @@ load_dotenv()
 
 app = FastAPI()
 
+# Redirect root to /docs
+@app.get("/", include_in_schema=False)
+async def redirect_to_docs():
+    return RedirectResponse(url="/docs")
+
 # Client setup
 
 COGNITO_REGION = os.getenv("COGNITO_REGION", "us-east-1")
 USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")
 COGNITO_CLIENT_SECRET = os.getenv("COGNITO_CLIENT_SECRET")
+
+COGNITO_DOMAIN = os.getenv("COGNITO_DOMAIN")
+REDIRECT_URI = os.getenv("REDIRECT_URI")
 
 cognito = boto3.client("cognito-idp", region_name=COGNITO_REGION)
 
@@ -329,5 +341,86 @@ def send_email_verification(data: EmailSendCode):
             "status": "CODE_SENT",
             "delivery": resp.get("CodeDeliveryDetails", {}),
         }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+# ... [Keep all your existing code] ...
+
+# ==========================================
+# SOCIAL AUTH ENDPOINTS
+# ==========================================
+
+@app.get("/auth/login/google")
+def login_google():
+    """
+    Redirects the browser to the Cognito/Google hosted UI.
+    """
+    # We construct the URL to redirect the user to.
+    # If you want to show the generic Cognito login page (Login with Email OR Google),
+    # remove the `&identity_provider=Google` parameter.
+
+    try:
+    
+        cognito_oauth_url = (
+            f"https://{COGNITO_DOMAIN}/oauth2/authorize"
+            f"?response_type=code"
+            f"&client_id={CLIENT_ID}"
+            f"&redirect_uri={urllib.parse.quote(REDIRECT_URI)}"
+            f"&scope=email+openid+profile"
+            f"&identity_provider=Google"
+        )
+        
+        return RedirectResponse(url=cognito_oauth_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/auth/callback")
+def auth_callback(code: str):
+    """
+    Exchanges the authorization code for tokens.
+    Cognito redirects here after successful Google Login.
+    """
+    try:
+        # The token endpoint requires basic auth (Client ID : Client Secret)
+        # OR client_secret in the body. We will use Basic Auth header.
+        token_endpoint = f"https://{COGNITO_DOMAIN}/oauth2/token"
+        
+        # Prepare Basic Auth Header
+        auth_str = f"{CLIENT_ID}:{COGNITO_CLIENT_SECRET}"
+        auth_bytes = auth_str.encode("utf-8")
+        auth_b64 = base64.b64encode(auth_bytes).decode("utf-8")
+        
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {auth_b64}"
+        }
+        
+        body = {
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        }
+        
+        # Make the POST request to swap code for tokens
+        resp = requests.post(token_endpoint, headers=headers, data=body)
+        
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Token exchange failed: {resp.text}")
+            
+        tokens = resp.json()
+        
+        # You now have the tokens! 
+        # In a real app, you might set these as HttpOnly cookies 
+        # or redirect the user to your frontend dashboard with the token.
+        return {
+            "status": "LOGIN_SUCCESS",
+            "access_token": tokens.get("access_token"),
+            "id_token": tokens.get("id_token"),
+            "refresh_token": tokens.get("refresh_token")
+        }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
