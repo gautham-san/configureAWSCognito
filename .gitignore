@@ -1,2 +1,4 @@
 .env
 myenv_awsCog
+*.json
+__pycache__/

@@ -424,3 +424,49 @@ def auth_callback(code: str):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==========================================
+# LOGOUT ENDPOINTS
+# ==========================================
+
+# 1. Browser/Social Logout
+# Use this when the user is in a browser (e.g. they clicked "Log Out" on your website)
+@app.get("/auth/logout/browser")
+def logout_browser():
+    """
+    Redirects to Cognito's logout endpoint. 
+    This clears the Cognito session cookies and redirects back to your homepage.
+    """
+    # The URL where Cognito should redirect back to after logging out.
+    # MUST MATCH exactly one of the 'Allowed sign-out URLs' in AWS Console.
+    logout_uri = "http://localhost:8000"
+    
+    cognito_logout_url = (
+        f"https://{COGNITO_DOMAIN}/logout"
+        f"?client_id={CLIENT_ID}"
+        f"&logout_uri={urllib.parse.quote(logout_uri)}"
+    )
+    
+    return RedirectResponse(url=cognito_logout_url)
+
+
+# 2. API Logout (Token Invalidation)
+# Use this for mobile apps or if you just want to kill the token immediately
+# (Works for both Social and Email/Password users)
+@app.post("/auth/logout")
+def logout_api(data: AccessTokenInput):
+    """
+    Invalidates the user's Refresh Token so they cannot get new Access Tokens.
+    """
+    try:
+        # GlobalSignOut signs the user out of all devices.
+        # It invalidates the issued Access Token and Refresh Token.
+        cognito.global_sign_out(AccessToken=data.access_token)
+        return {"status": "LOGOUT_SUCCESSFUL"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+# http://localhost:8000/auth/logout/browser
+# http://localhost:8000/auth/login/google
